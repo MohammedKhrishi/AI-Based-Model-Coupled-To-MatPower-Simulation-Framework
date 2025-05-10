@@ -1,6 +1,6 @@
 # AI-Based-Model-Coupled-To-MATPOWER-Simulation-Framework
 
-## Integrating AI models with MATPOWER for power system optimization involves a multi-step process that combines machine learning for predictive analytics with power flow simulations. Here's a comprehensive guide to building such a system using synthetic data, inspired by methodologies like those presented in the paper "Optimization of Power System Flexibility Through AI‐Driven Dynamic Load Management and Renewable Integration" .
+### Integrating AI models with MATPOWER for power system optimization involves a multi-step process that combines machine learning for predictive analytics with power flow simulations. Here's a comprehensive guide to building such a system using synthetic data, inspired by methodologies like those presented in the paper "Optimization of Power System Flexibility Through AI‐Driven Dynamic Load Management and Renewable Integration" .
 
  
  # Step-by-Step Workflow
