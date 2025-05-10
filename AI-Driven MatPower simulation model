@@ -1,0 +1,108 @@
+# AI-Driven Load Forecasting and MATPOWER Integration Workflow
+# Requirements: Python 3.x, PyTorch, MATLAB Engine for Python, MATPOWER installed in MATLAB
+# A sample example using synthetic data to evaluate the performance of the proposed model
+
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+import matlab.engine
+
+# -----------------------------
+# 1. Generate Synthetic Data
+# -----------------------------
+def generate_synthetic_data(num_buses=14, num_hours=24):
+    np.random.seed(42)
+    timestamps = pd.date_range("2025-01-01", periods=num_hours, freq="H")
+    data = {
+        f"bus_{i+1}_load": np.random.uniform(20, 100, size=num_hours) for i in range(num_buses)
+    }
+    data["solar_gen"] = np.maximum(0, 80 * np.sin(np.linspace(0, np.pi, num_hours)) + np.random.randn(num_hours)*5)
+    df = pd.DataFrame(data, index=timestamps)
+    return df
+
+# -----------------------------
+# 2. Define Transformer Model
+# -----------------------------
+class TimeSeriesDataset(Dataset):
+    def __init__(self, series, input_len=12, output_len=1):
+        self.X, self.y = [], []
+        for i in range(len(series) - input_len - output_len):
+            self.X.append(series[i:i+input_len])
+            self.y.append(series[i+input_len:i+input_len+output_len])
+        self.X = torch.tensor(self.X, dtype=torch.float32)
+        self.y = torch.tensor(self.y, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+class SimpleTransformer(nn.Module):
+    def __init__(self, input_size=1, d_model=64, nhead=4, num_layers=2):
+        super().__init__()
+        self.encoder = nn.Linear(input_size, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.decoder = nn.Linear(d_model, 1)
+
+    def forward(self, src):
+        src = self.encoder(src)
+        src = self.transformer(src)
+        out = self.decoder(src[:, -1])
+        return out
+
+# -----------------------------
+# 3. Train Model
+# -----------------------------
+def train_model(df, bus_index=0):
+    series = df.iloc[:, bus_index].values.reshape(-1, 1)
+    dataset = TimeSeriesDataset(series)
+    loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    model = SimpleTransformer()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    loss_fn = nn.MSELoss()
+
+    for epoch in range(30):
+        for X, y in loader:
+            pred = model(X)
+            loss = loss_fn(pred.squeeze(), y.squeeze())
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+    return model
+
+# -----------------------------
+# 4. Forecast and Inject into MATPOWER
+# -----------------------------
+def forecast_and_run_matpower(model, df, input_len=12):
+    # Forecast next hour
+    input_series = torch.tensor(df.iloc[-input_len:, 0].values.reshape(1, input_len, 1), dtype=torch.float32)
+    prediction = model(input_series).item()
+    print(f"Predicted next load: {prediction:.2f} MW")
+
+    # Start MATLAB engine and load MATPOWER case
+    eng = matlab.engine.start_matlab()
+    eng.eval("define_constants;", nargout=0)
+    eng.eval("mpc = loadcase('case14');", nargout=0)
+    eng.eval(f"mpc.bus(2, PD) = {prediction};", nargout=0)  # Modify load at bus 2
+
+    # Run power flow
+    eng.eval("results = runpf(mpc);", nargout=0)
+    bus_data = eng.eval("results.bus")
+    eng.quit()
+    return bus_data
+
+# -----------------------------
+# 5. Main Execution
+# -----------------------------
+if __name__ == "__main__":
+    df = generate_synthetic_data()
+    model = train_model(df)
+    bus_data = forecast_and_run_matpower(model, df)
+    print("\nUpdated MATPOWER Bus Data:")
+    print(bus_data)
